@@ -2,23 +2,39 @@ import { Stack } from 'expo-router';
 import { PaperProvider } from 'react-native-paper';
 import { theme } from '../src/theme';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useEffect } from 'react';
-import { SplashScreen } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { SplashScreen, useRouter } from 'expo-router';
+import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
+import { ActivityIndicator, View } from 'react-native';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
-export default function Layout() {
-  useEffect(() => {
-    // Hide splash screen after the app is ready
-    SplashScreen.hideAsync();
-  }, []);
+function AppLayout() {
+  const { session, loading } = useAuth();
+  const router = useRouter();
 
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <PaperProvider theme={theme}>
-        <Stack screenOptions={{ headerShown: false }} />
-      </PaperProvider>
-    </GestureHandlerRootView>
-  );
+  useEffect(() => {
+    if (!loading) {
+      if (!session) {
+        router.replace('/Login');
+      } else {
+        router.replace('/');
+      }
+    }
+  }, [session, loading]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  return <Stack screenOptions={{ headerShown: false }} />;
 } 
+
+export default function Layout() {
+  return <AuthProvider><PaperProvider theme={theme}><GestureHandlerRootView style={{ flex: 1 }}><AppLayout /></GestureHandlerRootView></PaperProvider></AuthProvider>;
+}
