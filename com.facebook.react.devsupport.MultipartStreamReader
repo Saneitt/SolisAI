@@ -1,0 +1,468 @@
+import React, { useCallback, useState, useRef } from "react";
+import {
+  View,
+  ActivityIndicator,
+  Text,
+  RefreshControl,
+  ScrollView,
+  Linking,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { FlashList } from "@shopify/flash-list";
+import {
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { 
+  EyeIcon, 
+  LinkIcon, 
+  UserIcon, 
+  BriefcaseIcon, 
+  GraduationCapIcon, 
+  AwardIcon, 
+  FileTextIcon 
+} from "lucide-react-native";
+import { useLocalSearchParams } from "expo-router";
+import { BottomSheetModal, BottomSheetView } from "@gorhom/bottom-sheet";
+import { apiUrl } from "@/core/config/url";
+
+export default function ApplicationsTable() {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const queryClient = useQueryClient();
+  const { id } = useLocalSearchParams();
+  const bottomSheetRef = useRef<BottomSheetModal>(null);
+  const [selectedApplication, setSelectedApplication] = useState<any>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState("basic");
+
+  const fetchApplications = async ({ pageParam = 1 }) => {
+    const authToken = await AsyncStorage.getItem("token");
+    const response = await fetch(
+      `${apiUrl}/application/get-details-by-cc/10/${pageParam}/${id}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: authToken?.toString() || "",
+        },
+      }
+    );
+
+    if (!response.ok) throw new Error("Failed to fetch applications");
+
+    const data = await response.json();
+    return data.length ? { data, nextPage: pageParam + 1 } : { data: [] };
+  };
+
+  const {
+    data,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetching,
+    isFetchingNextPage,
+    status,
+  } = useInfiniteQuery({
+    queryKey: ["applications", id],
+    queryFn: fetchApplications,
+    getNextPageParam: (lastPage) =>
+      lastPage.data.length ? lastPage.nextPage : undefined,
+    initialPageParam: 1,
+  });
+
+  const applications =
+    data?.pages.flatMap((page: { data: any }) => page.data) || [];
+
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ["applications"] });
+    setIsRefreshing(false);
+  }, [queryClient]);
+
+  const openModal = (application: any, index: number) => {
+    setSelectedApplication(application);
+    setCurrentIndex(index);
+    setActiveTab("basic");
+    bottomSheetRef.current?.present();
+  };
+
+  if (status === "pending") {
+    return (
+      <View className="flex items-center justify-center h-full">
+        <ActivityIndicator size="large" color="#92400E" />
+      </View>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <View className="flex items-center justify-center h-full">
+        <Text className="text-red-500">Error: {error?.message}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <FlashList
+        data={applications}
+        keyExtractor={(item: any) => item.application_id.toString()}
+        estimatedItemSize={100}
+        ListEmptyComponent={() => (
+          <View className="flex items-center justify-center py-10">
+            <Text className="text-center text-lg text-foreground opacity-80">
+              No applicants found.
+            </Text>
+          </View>
+        )}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing || isFetching}
+            onRefresh={onRefresh}
+            tintColor="#92400E"
+          />
+        }
+        onEndReached={() => {
+          if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+        }}
+        onEndReachedThreshold={0.5}
+        ListHeaderComponent={() => (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="text-foreground font-bold">Applicant</TableHead>
+                <TableHead className="text-foreground font-bold">Domain</TableHead>
+                <TableHead className="text-foreground font-bold">Age</TableHead>
+                <TableHead className="text-foreground font-bold">Sex</TableHead>
+                <TableHead className="text-foreground font-bold">Experience</TableHead>
+                <TableHead className="text-foreground font-bold">Skills</TableHead>
+                <TableHead className="text-foreground font-bold">Status</TableHead>
+                <TableHead className="text-foreground font-bold text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+          </Table>
+        )}
+        renderItem={({ item: application, index }) => (
+          <TableRow
+            key={application.application_id}
+            onPress={() => openModal(application, index)}
+            className="border-b border-border hover:bg-muted/50 active:bg-muted"
+          >
+            <TableCell>
+              <View className="flex flex-row items-center space-x-3">
+                <Avatar alt={application.fullname}>
+                  <AvatarImage src={application.profilepic} />
+                  <AvatarFallback>
+                    <UserIcon className="w-5 h-5" />
+                  </AvatarFallback>
+                </Avatar>
+                <View>
+                  <Text className="text-foreground font-medium">{application.fullname}</Text>
+                  <Text className="text-sm text-foreground opacity-70">
+                    {application.username}
+                  </Text>
+                </View>
+              </View>
+            </TableCell>
+            <TableCell>
+              <Text className="text-foreground">{application.domain}</Text>
+            </TableCell>
+            <TableCell>
+              <Text className="text-foreground">{application.age}</Text>
+            </TableCell>
+            <TableCell>
+              <Text className="text-foreground">{application.sex}</Text>
+            </TableCell>
+            <TableCell>
+              {application.experience && application.experience.map((exp: any, i: number) => (
+                <Text key={i} className="text-foreground">{exp.position} at {exp.companyName}</Text>
+              ))}
+            </TableCell>
+            <TableCell>
+              {application.skills && application.skills.map((skill: string, i: number) => (
+                <Badge key={i} className="mr-1 mb-1">{skill}</Badge>
+              ))}
+            </TableCell>
+            <TableCell>
+              <Badge variant={application.status === "pending" ? "outline" : "default"} className="bg-primary/20 text-foreground border border-primary/30">
+                {application.status}
+              </Badge>
+            </TableCell>
+            <TableCell className="text-right">
+              <Button 
+                variant="outline" 
+                size="icon" 
+                onPress={() => openModal(application, index)} 
+                className="border border-primary/30"
+              >
+                <EyeIcon className="h-4 w-4 text-foreground" />
+              </Button>
+            </TableCell>
+          </TableRow>
+        )}
+      />
+
+      <BottomSheetModal ref={bottomSheetRef} snapPoints={["90%", "95%"]}>
+        <BottomSheetView className="p-4 flex-1 bg-background">
+          {selectedApplication && (
+            <ScrollView 
+              showsVerticalScrollIndicator={true} 
+              className="flex-1"
+              contentContainerStyle={{ paddingBottom: 40 }}
+            >
+              <Tabs defaultValue="basic" value={activeTab}>
+                <View className="flex flex-row space-x-2 mb-6">
+                  <Button 
+                    variant={activeTab === "basic" ? "default" : "outline"} 
+                    onPress={() => setActiveTab("basic")}
+                    className={`flex-1 border ${activeTab === "basic" ? "bg-primary" : "border-primary/30"}`}
+                  >
+                    <UserIcon className={`w-4 h-4 mr-2 ${activeTab === "basic" ? "text-primary-foreground" : "text-foreground"}`} />
+                    <Text className={activeTab === "basic" ? "text-primary-foreground" : "text-foreground"}>
+                      Basic Info
+                    </Text>
+                  </Button>
+                  <Button 
+                    variant={activeTab === "portfolio" ? "default" : "outline"} 
+                    onPress={() => setActiveTab("portfolio")}
+                    className={`flex-1 border ${activeTab === "portfolio" ? "bg-primary" : "border-primary/30"}`}
+                  >
+                    <BriefcaseIcon className={`w-4 h-4 mr-2 ${activeTab === "portfolio" ? "text-primary-foreground" : "text-foreground"}`} />
+                    <Text className={activeTab === "portfolio" ? "text-primary-foreground" : "text-foreground"}>
+                      Portfolio
+                    </Text>
+                  </Button>
+                </View>
+
+                <TabsContent value="basic">
+                  <View className="space-y-6">
+                    {/* Applicant Header */}
+                    <View className="flex flex-row items-center space-x-4">
+                      <Avatar className="w-16 h-16">
+                        <AvatarImage src={selectedApplication.profilepic} />
+                        <AvatarFallback>
+                          <UserIcon className="w-8 h-8" />
+                        </AvatarFallback>
+                      </Avatar>
+                      <View>
+                        <Text className="text-2xl font-bold text-foreground">{selectedApplication.fullname}</Text>
+                        <Text className="text-foreground opacity-70">@{selectedApplication.username}</Text>
+                        <Badge className="mt-2 bg-primary/20 text-foreground border border-primary/30">
+                          {selectedApplication.status}
+                        </Badge>
+                      </View>
+                    </View>
+
+                    {/* Basic Information */}
+                    <Card className="p-4 border border-border">
+                      <Text className="text-lg font-bold mb-3 text-foreground">Basic Information</Text>
+                      <View className="space-y-2">
+                        <View className="flex flex-row space-x-4">
+                          <Text className="text-foreground opacity-70 w-24">Age</Text>
+                          <Text className="text-foreground">{selectedApplication.age}</Text>
+                        </View>
+                        <View className="flex flex-row space-x-4">
+                          <Text className="text-foreground opacity-70 w-24">Sex</Text>
+                          <Text className="text-foreground">{selectedApplication.sex}</Text>
+                        </View>
+                        <View className="flex flex-row space-x-4">
+                          <Text className="text-foreground opacity-70 w-24">Domain</Text>
+                          <Text className="text-foreground">{selectedApplication.domain}</Text>
+                        </View>
+                        <View className="flex flex-row space-x-4">
+                          <Text className="text-foreground opacity-70 w-24">Email</Text>
+                          <Text className="text-foreground">{selectedApplication.email || "Not provided"}</Text>
+                        </View>
+                        <View className="flex flex-row space-x-4">
+                          <Text className="text-foreground opacity-70 w-24">Phone</Text>
+                          <Text className="text-foreground">{selectedApplication.phone || "Not provided"}</Text>
+                        </View>
+                        <View className="flex flex-row space-x-4">
+                          <Text className="text-foreground opacity-70 w-24">Location</Text>
+                          <Text className="text-foreground">{selectedApplication.location || "Not provided"}</Text>
+                        </View>
+                      </View>
+                    </Card>
+
+                    {/* Experience */}
+                    <Card className="p-4 border border-border">
+                      <Text className="text-lg font-bold mb-3 text-foreground">Experience</Text>
+                      {selectedApplication.experience && selectedApplication.experience.length > 0 ? (
+                        <View className="space-y-4">
+                          {selectedApplication.experience.map((exp: any, i: number) => (
+                            <View key={i} className="border-l-4 border-primary pl-3 py-1">
+                              <Text className="font-bold text-foreground">{exp.position}</Text>
+                              <Text className="text-foreground">{exp.companyName}</Text>
+                              <Text className="text-sm text-foreground opacity-70">
+                                {exp.startDate} - {exp.endDate || "Present"}
+                              </Text>
+                              <Text className="text-sm text-foreground">{exp.location || ""}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : (
+                        <Text className="text-foreground opacity-70">No experience listed</Text>
+                      )}
+                    </Card>
+
+                    {/* Skills */}
+                    <Card className="p-4 border border-border">
+                      <Text className="text-lg font-bold mb-3 text-foreground">Skills</Text>
+                      <View className="flex flex-row flex-wrap gap-2">
+                        {selectedApplication.skills && selectedApplication.skills.length > 0 ? (
+                          selectedApplication.skills.map((skill: string, i: number) => (
+                            <Badge key={i} className="bg-primary/20 text-foreground border border-primary/30">{skill}</Badge>
+                          ))
+                        ) : (
+                          <Text className="text-foreground opacity-70">No skills listed</Text>
+                        )}
+                      </View>
+                    </Card>
+
+                    {/* Education */}
+                    {selectedApplication.education && (
+                      <Card className="p-4 border border-border">
+                        <Text className="text-lg font-bold mb-3 text-foreground">Education</Text>
+                        {selectedApplication.education.length > 0 ? (
+                          <View className="space-y-3">
+                            {selectedApplication.education.map((edu: any, i: number) => (
+                              <View key={i} className="border-l-4 border-primary pl-3 py-1">
+                                <Text className="font-bold text-foreground">{edu.degree}</Text>
+                                <Text className="text-foreground">{edu.institution}</Text>
+                                <Text className="text-sm text-foreground opacity-70">
+                                  {edu.startDate} - {edu.endDate || "Present"}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                          <Text className="text-foreground opacity-70">No education listed</Text>
+                        )}
+                      </Card>
+                    )}
+
+                    {/* Resume */}
+                    {selectedApplication.resumelink && (
+                      <Card className="p-4 border border-border">
+                        <View className="flex flex-row justify-between items-center">
+                          <Text className="text-lg font-bold text-foreground">Resume</Text>
+                          <Button
+                            onPress={() => Linking.openURL(selectedApplication.resumelink)}
+                            variant="outline"
+                            size="sm"
+                            className="border border-primary/30"
+                          >
+                            <Text className="text-foreground mr-2">View Resume</Text> 
+                            <LinkIcon className="w-4 h-4 text-foreground" />
+                          </Button>
+                        </View>
+                      </Card>
+                    )}
+
+                    {/* Application Notes */}
+                    {selectedApplication.notes && (
+                      <Card className="p-4 border border-border">
+                        <Text className="text-lg font-bold mb-3 text-foreground">Application Notes</Text>
+                        <Text className="text-foreground">{selectedApplication.notes}</Text>
+                      </Card>
+                    )}
+                  </View>
+                </TabsContent>
+
+                <TabsContent value="portfolio">
+                  {/* Portfolio Content - Simplified version without DynamicIframe */}
+                  <View className="w-full">
+                    {/* Header Section */}
+                    <View className="mb-8">
+                      <Text className="text-2xl font-bold text-center mb-4 text-foreground">Professional Portfolio</Text>
+                      
+                      <Card className="p-4 mb-4 border border-border">
+                        <Text className="text-xl font-semibold mb-2 text-foreground">Career Summary</Text>
+                        <View className="bg-primary/10 px-4 py-2 rounded-full inline-block border border-primary/30">
+                          <Text className="font-medium text-foreground">
+                            {selectedApplication.portfolio?.totalExperienceYears || 
+                              (selectedApplication.experience?.length > 0 ? selectedApplication.experience.length : 0)} Years Experience
+                          </Text>
+                        </View>
+                      </Card>
+                    </View>
+
+                    {/* Content Sections */}
+                    <View className="space-y-6">
+                      {/* Experience Section */}
+                      <Card className="p-4 border border-border">
+                        <Text className="text-xl font-bold mb-4 text-foreground">Professional Experience</Text>
+                        
+                        {selectedApplication.experience && selectedApplication.experience.length > 0 ? (
+                          <View className="space-y-4">
+                            {selectedApplication.experience.map((exp: any, index: number) => (
+                              <View key={index} className="bg-card shadow-sm p-4 rounded-xl border-l-4 border-primary">
+                                <Text className="text-lg font-bold text-foreground">{exp.position}</Text>
+                                <View className="flex flex-row items-center mt-1 mb-2">
+                                  <Text className="font-medium text-primary">{exp.companyName}</Text>
+                                </View>
+                                <View className="bg-primary/10 px-3 py-1 rounded-md inline-block border border-primary/30">
+                                  <Text className="text-sm text-foreground">{exp.startDate || ""} - {exp.endDate || "Present"}</Text>
+                                </View>
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                          <View className="bg-muted/20 p-6 rounded-lg text-center border border-border">
+                            <Text className="text-foreground opacity-70">No experience listed yet</Text>
+                          </View>
+                        )}
+                      </Card>
+
+                      {/* Skills Section */}
+                      <Card className="p-4 border border-border">
+                        <Text className="text-xl font-bold mb-4 text-foreground">Skills</Text>
+                        
+                        {selectedApplication.skills && selectedApplication.skills.length > 0 ? (
+                          <View className="flex flex-row flex-wrap gap-2">
+                            {selectedApplication.skills.map((skill: string, index: number) => (
+                              <View key={index} className="bg-primary/10 px-4 py-2 rounded-full border border-primary/30">
+                                <Text className="font-medium text-foreground">{skill}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                          <View className="bg-muted/20 p-6 rounded-lg text-center border border-border">
+                            <Text className="text-foreground opacity-70">No skills listed yet</Text>
+                          </View>
+                        )}
+                      </Card>
+
+                      {/* Resume Section */}
+                      {selectedApplication.resumelink && (
+                        <Card className="p-4 border border-border">
+                          <Text className="text-xl font-bold mb-4 text-foreground">Resume</Text>
+                          <Button
+                            onPress={() => Linking.openURL(selectedApplication.resumelink)}
+                            variant="outline"
+                            className="w-full border border-primary/30"
+                          >
+                            <FileTextIcon className="w-4 h-4 mr-2 text-foreground" />
+                            <Text className="text-foreground">View Resume</Text>
+                          </Button>
+                        </Card>
+                      )}
+                    </View>
+                  </View>
+                </TabsContent>
+              </Tabs>
+            </ScrollView>
+          )}
+        </BottomSheetView>
+      </BottomSheetModal>
+    </>
+  );
+}
